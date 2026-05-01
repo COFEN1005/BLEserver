@@ -5,71 +5,46 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>ESP32 STT Controller</title>
     <style>
-        body {
-            font-family: sans-serif;
-            text-align: center;
-            -webkit-touch-callout: none;
-            -webkit-user-select: none;
-            user-select: none;
-            background-color: #f4f4f9;
-        }
-        .btn-group {
-            margin: 20px 0;
-        }
-        button {
-            padding: 15px 25px;
-            font-size: 1rem;
-            border-radius: 8px;
-            border: none;
-            cursor: pointer;
-            margin: 5px;
-        }
-        #talkBtn {
-            padding: 40px;
-            font-size: 1.4rem;
+        body { font-family: sans-serif; text-align: center; background-color: #f4f4f9; padding-top: 20px; }
+        .btn-group { margin: 10px 0; }
+        button { padding: 15px; font-size: 1rem; border-radius: 8px; border: none; cursor: pointer; margin: 5px; color: white; }
+        #connectBtn { background-color: #57606f; }
+        #sttBtn {
+            padding: 50px;
+            font-size: 1.5rem;
             font-weight: bold;
-            color: white;
-            background-color: #ff4757;
-            width: 85%;
-            margin-top: 30px;
-            touch-action: manipulation;
+            width: 80%;
+            margin-top: 20px;
+            border-radius: 20px;
+            transition: 0.3s;
         }
-        #talkBtn:active {
-            background-color: #2ed573;
-        }
+        .btn-start { background-color: #1e90ff; } /* 青：開始前 */
+        .btn-stop { background-color: #ff4757; }  /* 赤：録音中 */
         #result {
             margin: 20px auto;
-            width: 85%;
-            min-height: 120px;
+            width: 80%;
+            min-height: 100px;
             border: 2px solid #ddd;
             padding: 15px;
             border-radius: 12px;
             background: white;
-            word-wrap: break-word;
-            font-size: 1.1rem;
+            font-size: 1.2rem;
         }
-        .info { font-size: 0.9rem; color: #666; margin-top: 5px; }
+        #status { font-weight: bold; color: #333; margin: 10px; }
     </style>
 </head>
 <body>
     <h1>ESP32 音声入力</h1>
     
     <div class="btn-group">
-        <button onclick="connectBLE()" style="background-color: #57606f; color: white;">1. ESP32に接続</button>
-        <button onclick="setupMic()" style="background-color: #1e90ff; color: white;">2. マイクを有効化</button>
+        <button id="connectBtn" onclick="connectBLE()">1. ESP32に接続</button>
     </div>
     
     <div id="status">ステータス: 待機中</div>
-    
-    <button id="talkBtn" 
-            onmousedown="startSTT()" 
-            onmouseup="stopSTT()" 
-            ontouchstart="startSTT()" 
-            ontouchend="stopSTT()">
-        3. 押しながら喋る
-    </button>
 
-    <div class="info">※離すと送信されます</div>
+    <!-- トグルボタンに変更 -->
+    <button id="sttBtn" class="btn-start" onclick="toggleSTT()">音声入力 開始</button>
+
     <div id="result">（ここに文字が表示されます）</div>
 
     <script>
@@ -79,28 +54,12 @@
         const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
         const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 
-        // マイク権限を明示的に要求
-        async function setupMic() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                // 許可が取れたらストップさせておく
-                stream.getTracks().forEach(track => track.stop());
-                document.getElementById('status').innerText = "マイクが有効になりました！";
-                alert("マイクの使用が許可されました。");
-            } catch (err) {
-                console.error(err);
-                alert("マイクの許可に失敗しました。iPhoneの「設定 > Bluefy」でマイクがONか確認してください。");
-            }
-        }
-
-        // BLE接続
         async function connectBLE() {
             try {
                 const device = await navigator.bluetooth.requestDevice({
                     acceptAllDevices: true,
                     optionalServices: [SERVICE_UUID]
                 });
-                document.getElementById('status').innerText = "接続中...";
                 const server = await device.gatt.connect();
                 const service = await server.getPrimaryService(SERVICE_UUID);
                 characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
@@ -110,14 +69,18 @@
             }
         }
 
-        // 音声認識開始
-        function startSTT() {
-            if (isRecognizing) return;
-            isRecognizing = true;
+        function toggleSTT() {
+            if (!isRecognizing) {
+                startSTT();
+            } else {
+                stopSTT();
+            }
+        }
 
+        function startSTT() {
             const SpeechAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SpeechAPI) {
-                alert("お使いのブラウザは音声認識に対応していません。Bluefyを使用してください。");
+                alert("このブラウザは音声認識非対応です");
                 return;
             }
 
@@ -125,6 +88,14 @@
             recognition.lang = 'ja-JP';
             recognition.interimResults = true;
             recognition.continuous = true;
+
+            recognition.onstart = () => {
+                isRecognizing = true;
+                const btn = document.getElementById('sttBtn');
+                btn.innerText = "タップして送信";
+                btn.className = "btn-stop";
+                document.getElementById('status').innerText = "録音中...";
+            };
 
             recognition.onresult = (event) => {
                 let text = "";
@@ -135,41 +106,33 @@
             };
 
             recognition.onerror = (event) => {
-                console.error("Speech Error:", event.error);
-                document.getElementById('status').innerText = "エラー: " + event.error;
+                isRecognizing = false;
+                alert("エラー: " + event.error);
+                resetButton();
             };
 
-            try {
-                recognition.start();
-                document.getElementById('status').innerText = "ステータス: 録音中...";
-            } catch (e) {
-                console.error(e);
-            }
+            recognition.start();
         }
 
-        // 音声認識終了と送信
         async function stopSTT() {
-            if (!isRecognizing) return;
-            isRecognizing = false;
-
             if (recognition) {
                 recognition.stop();
             }
+            isRecognizing = false;
+            resetButton();
             
-            document.getElementById('status').innerText = "ステータス: 送信中...";
             const finalText = document.getElementById('result').innerText;
-
-            if (finalText && finalText !== "（ここに文字が表示されます）" && characteristic) {
-                try {
-                    const encoder = new TextEncoder();
-                    await characteristic.writeValue(encoder.encode(finalText));
-                    document.getElementById('status').innerText = "送信成功！";
-                } catch (error) {
-                    document.getElementById('status').innerText = "送信失敗";
-                }
-            } else {
-                document.getElementById('status').innerText = "文字がありません";
+            if (finalText && characteristic) {
+                const encoder = new TextEncoder();
+                await characteristic.writeValue(encoder.encode(finalText));
+                document.getElementById('status').innerText = "送信完了！";
             }
+        }
+
+        function resetButton() {
+            const btn = document.getElementById('sttBtn');
+            btn.innerText = "音声入力 開始";
+            btn.className = "btn-start";
         }
     </script>
 </body>
