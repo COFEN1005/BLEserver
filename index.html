@@ -2,62 +2,134 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>ESP32 STT Controller</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            /* 長押し時のメニュー表示や選択を無効化 */
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        #talkBtn {
+            padding: 40px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: white;
+            background-color: #ff4757;
+            border: none;
+            border-radius: 15px;
+            margin: 20px;
+            width: 80%;
+            touch-action: manipulation;
+        }
+        #talkBtn:active {
+            background-color: #2ed573;
+        }
+        #result {
+            margin: 20px auto;
+            width: 80%;
+            min-height: 100px;
+            border: 2px solid #ccc;
+            padding: 15px;
+            border-radius: 10px;
+            background: #f9f9f9;
+            word-wrap: break-word;
+        }
+    </style>
 </head>
 <body>
     <h1>ESP32 音声入力</h1>
-    <button onclick="connectBLE()" style="padding: 20px;">1. ESP32に接続</button>
-    <button onclick="startSTT()" style="padding: 20px;">2. 音声入力開始</button>
+    
+    <button onclick="connectBLE()" style="padding: 15px;">1. ESP32に接続</button>
+    <br>
+    
+    <!-- 2番のボタンを長押し対応に変更 -->
+    <button id="talkBtn" 
+            onmousedown="startSTT()" 
+            onmouseup="stopSTT()" 
+            ontouchstart="startSTT()" 
+            ontouchend="stopSTT()">
+        2. 押しながら喋る
+    </button>
+
     <div id="status">ステータス: 待機中</div>
-    <div id="result" style="margin-top: 20px; border: 1px solid #ccc; padding: 10px;"></div>
+    <div id="result">ここに文字が表示されます</div>
 
     <script>
         let characteristic;
+        let recognition;
+        let isRecognizing = false;
         const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
         const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 
         // BLE接続
         async function connectBLE() {
-    try {
-        const device = await navigator.bluetooth.requestDevice({
-            // フィルタリングを完全に無効化する
-            acceptAllDevices: true,
-            // 接続後に使いたい機能のIDだけを登録しておく
-            optionalServices: [SERVICE_UUID]
-        });
+            try {
+                const device = await navigator.bluetooth.requestDevice({
+                    acceptAllDevices: true,
+                    optionalServices: [SERVICE_UUID]
+                });
 
-        document.getElementById('status').innerText = "接続中...";
-        const server = await device.gatt.connect();
-        const service = await server.getPrimaryService(SERVICE_UUID);
-        characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
-        
-        document.getElementById('status').innerText = "ステータス: " + device.name + " に接続！";
-    } catch (error) {
-        console.error(error);
-        alert("接続失敗: " + error);
-    }
-}
+                document.getElementById('status').innerText = "接続中...";
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+                
+                document.getElementById('status').innerText = "ステータス: " + device.name + " に接続中！";
+            } catch (error) {
+                console.error(error);
+                alert("接続失敗: " + error);
+            }
+        }
 
-        // 音声認識
+        // 音声認識開始（ボタンを押したとき）
         function startSTT() {
-            const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            if (isRecognizing) return;
+            isRecognizing = true;
+
+            recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
             recognition.lang = 'ja-JP';
-            recognition.interimResults = true; // 途中の経過も表示
+            recognition.interimResults = true; // 途中経過を表示
+            recognition.continuous = true;    // 押し続けている間ずっと聞き取る
 
             recognition.onresult = (event) => {
-                let text = event.results[0][0].transcript;
-                document.getElementById('result').innerText = text;
-
-                // 確定したタイミングで送信
-                if (event.results[0].isFinal && characteristic) {
-                    const encoder = new TextEncoder();
-                    characteristic.writeValue(encoder.encode(text));
+                let interimTranscript = "";
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    interimTranscript += event.results[i][0].transcript;
                 }
+                document.getElementById('result').innerText = interimTranscript;
             };
 
             recognition.start();
-            document.getElementById('status').innerText = "ステータス: 音声認識中...";
+            document.getElementById('status').innerText = "ステータス: 録音中...";
+        }
+
+        // 音声認識終了と送信（ボタンを離したとき）
+        async function stopSTT() {
+            if (!isRecognizing) return;
+            isRecognizing = false;
+
+            recognition.stop();
+            document.getElementById('status').innerText = "ステータス: 送信準備中...";
+
+            // 画面に表示されているテキストを取得
+            const finalText = document.getElementById('result').innerText;
+
+            if (finalText && finalText !== "ここに文字が表示されます" && characteristic) {
+                try {
+                    const encoder = new TextEncoder();
+                    await characteristic.writeValue(encoder.encode(finalText));
+                    document.getElementById('status').innerText = "ステータス: 送信完了！";
+                } catch (error) {
+                    console.error(error);
+                    document.getElementById('status').innerText = "送信エラー";
+                }
+            } else {
+                document.getElementById('status').innerText = "ステータス: 文字なし";
+            }
         }
     </script>
 </body>
