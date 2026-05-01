@@ -5,45 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>ESP32 STT Controller</title>
     <style>
-        body { font-family: sans-serif; text-align: center; background-color: #f4f4f9; padding-top: 20px; }
-        .btn-group { margin: 10px 0; }
-        button { padding: 15px; font-size: 1rem; border-radius: 8px; border: none; cursor: pointer; margin: 5px; color: white; }
+        body { font-family: sans-serif; text-align: center; background-color: #f4f4f9; padding: 20px; }
+        button { 
+            padding: 20px; font-size: 1.1rem; border-radius: 12px; border: none; 
+            margin: 10px; width: 90%; color: white; font-weight: bold;
+        }
         #connectBtn { background-color: #57606f; }
-        #sttBtn {
-            padding: 50px;
-            font-size: 1.5rem;
-            font-weight: bold;
-            width: 80%;
-            margin-top: 20px;
-            border-radius: 20px;
-            transition: 0.3s;
-        }
-        .btn-start { background-color: #1e90ff; } /* 青：開始前 */
-        .btn-stop { background-color: #ff4757; }  /* 赤：録音中 */
+        #sttBtn { background-color: #1e90ff; height: 100px; font-size: 1.5rem; }
+        .recording { background-color: #ff4757 !important; }
         #result {
-            margin: 20px auto;
-            width: 80%;
-            min-height: 100px;
-            border: 2px solid #ddd;
-            padding: 15px;
-            border-radius: 12px;
-            background: white;
-            font-size: 1.2rem;
+            margin: 20px auto; width: 90%; min-height: 100px;
+            border: 2px solid #ddd; padding: 15px; border-radius: 12px;
+            background: white; font-size: 1.2rem; text-align: left;
         }
-        #status { font-weight: bold; color: #333; margin: 10px; }
+        #status { margin: 10px; font-weight: bold; color: #333; }
     </style>
 </head>
 <body>
     <h1>ESP32 音声入力</h1>
     
-    <div class="btn-group">
-        <button id="connectBtn" onclick="connectBLE()">1. ESP32に接続</button>
-    </div>
-    
+    <button id="connectBtn" onclick="connectBLE()">1. ESP32に接続</button>
     <div id="status">ステータス: 待機中</div>
 
-    <!-- トグルボタンに変更 -->
-    <button id="sttBtn" class="btn-start" onclick="toggleSTT()">音声入力 開始</button>
+    <!-- シンプルな1回クリック形式 -->
+    <button id="sttBtn" onclick="handleSTTClick()">音声入力を開始</button>
 
     <div id="result">（ここに文字が表示されます）</div>
 
@@ -65,22 +50,22 @@
                 characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
                 document.getElementById('status').innerText = "接続完了: " + device.name;
             } catch (error) {
-                alert("BLE接続失敗: " + error);
+                alert("接続失敗: " + error);
             }
         }
 
-        function toggleSTT() {
+        function handleSTTClick() {
             if (!isRecognizing) {
-                startSTT();
+                startRecording();
             } else {
-                stopSTT();
+                stopAndSend();
             }
         }
 
-        function startSTT() {
+        function startRecording() {
             const SpeechAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SpeechAPI) {
-                alert("このブラウザは音声認識非対応です");
+                alert("非対応ブラウザです。Bluefyを使ってください。");
                 return;
             }
 
@@ -93,46 +78,48 @@
                 isRecognizing = true;
                 const btn = document.getElementById('sttBtn');
                 btn.innerText = "タップして送信";
-                btn.className = "btn-stop";
-                document.getElementById('status').innerText = "録音中...";
+                btn.classList.add('recording');
+                document.getElementById('status').innerText = "ステータス: 録音中...";
             };
 
             recognition.onresult = (event) => {
                 let text = "";
-                for (let i = event.resultIndex; i < event.results.length; i++) {
+                for (let i = 0; i < event.results.length; i++) {
                     text += event.results[i][0].transcript;
                 }
                 document.getElementById('result').innerText = text;
             };
 
             recognition.onerror = (event) => {
-                isRecognizing = false;
-                alert("エラー: " + event.error);
-                resetButton();
+                console.error("Error:", event.error);
+                // エラー内容を画面に出す
+                document.getElementById('status').innerText = "エラー: " + event.error;
+                stopAndSend(); // エラー時は停止処理へ
             };
 
             recognition.start();
         }
 
-        async function stopSTT() {
+        async function stopAndSend() {
             if (recognition) {
                 recognition.stop();
             }
             isRecognizing = false;
-            resetButton();
             
-            const finalText = document.getElementById('result').innerText;
-            if (finalText && characteristic) {
-                const encoder = new TextEncoder();
-                await characteristic.writeValue(encoder.encode(finalText));
-                document.getElementById('status').innerText = "送信完了！";
-            }
-        }
-
-        function resetButton() {
             const btn = document.getElementById('sttBtn');
-            btn.innerText = "音声入力 開始";
-            btn.className = "btn-start";
+            btn.innerText = "音声入力を開始";
+            btn.classList.remove('recording');
+
+            const text = document.getElementById('result').innerText;
+            if (text && text !== "（ここに文字が表示されます）" && characteristic) {
+                try {
+                    const encoder = new TextEncoder();
+                    await characteristic.writeValue(encoder.encode(text));
+                    document.getElementById('status').innerText = "ステータス: 送信成功！";
+                } catch (e) {
+                    document.getElementById('status').innerText = "ステータス: 送信失敗";
+                }
+            }
         }
     </script>
 </body>
