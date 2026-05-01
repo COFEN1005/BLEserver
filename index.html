@@ -19,20 +19,25 @@
 
         // BLE接続
         async function connectBLE() {
-            try {
-                const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ name: 'MySTT-Device' }],
-                    optionalServices: [SERVICE_UUID]
-                });
-                const server = await device.gatt.connect();
-                const service = await server.getPrimaryService(SERVICE_UUID);
-                characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
-                document.getElementById('status').innerText = "ステータス: ESP32接続完了！";
-            } catch (error) {
-                console.error(error);
-                alert("接続失敗: " + error);
-            }
-        }
+    try {
+        const device = await navigator.bluetooth.requestDevice({
+            // フィルタリングを完全に無効化する
+            acceptAllDevices: true,
+            // 接続後に使いたい機能のIDだけを登録しておく
+            optionalServices: [SERVICE_UUID]
+        });
+
+        document.getElementById('status').innerText = "接続中...";
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+        characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+        
+        document.getElementById('status').innerText = "ステータス: " + device.name + " に接続！";
+    } catch (error) {
+        console.error(error);
+        alert("接続失敗: " + error);
+    }
+}
 
         // 音声認識
         function startSTT() {
