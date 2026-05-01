@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 STT Controller</title>
+</head>
+<body>
+    <h1>ESP32 音声入力</h1>
+    <button onclick="connectBLE()" style="padding: 20px;">1. ESP32に接続</button>
+    <button onclick="startSTT()" style="padding: 20px;">2. 音声入力開始</button>
+    <div id="status">ステータス: 待機中</div>
+    <div id="result" style="margin-top: 20px; border: 1px solid #ccc; padding: 10px;"></div>
+
+    <script>
+        let characteristic;
+        const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+        const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+
+        // BLE接続
+        async function connectBLE() {
+            try {
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: 'MySTT-Device' }],
+                    optionalServices: [SERVICE_UUID]
+                });
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+                document.getElementById('status').innerText = "ステータス: ESP32接続完了！";
+            } catch (error) {
+                console.error(error);
+                alert("接続失敗: " + error);
+            }
+        }
+
+        // 音声認識
+        function startSTT() {
+            const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            recognition.lang = 'ja-JP';
+            recognition.interimResults = true; // 途中の経過も表示
+
+            recognition.onresult = (event) => {
+                let text = event.results[0][0].transcript;
+                document.getElementById('result').innerText = text;
+
+                // 確定したタイミングで送信
+                if (event.results[0].isFinal && characteristic) {
+                    const encoder = new TextEncoder();
+                    characteristic.writeValue(encoder.encode(text));
+                }
+            };
+
+            recognition.start();
+            document.getElementById('status').innerText = "ステータス: 音声認識中...";
+        }
+    </script>
+</body>
+</html>
